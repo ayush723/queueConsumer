@@ -1,7 +1,9 @@
-version: '3.7'
+version: '3.9'
 services:
-  mongodb_container:
+
+  mongodb:
     image: mongo:latest
+    container_name: mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: rootpassword
@@ -15,6 +17,8 @@ services:
       start_period: 20s
     volumes:
       - mongodb_data_container:/data/db
+    networks:
+        - rabbitmq_go_net
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -34,20 +38,35 @@ services:
         - ../rabbitmq/data/:/var/lib/rabbitmq/
     networks:
         - rabbitmq_go_net
+  
+  producer:
+      image: producer:latest
+      container_name: 'producer'
+      command: dockerize -wait tcp://rabbitmq:5672 -timeout 30s -wait-retry-interval 5s /app/producer
+      environment:
+        RABBITMQ_URI: amqp://guest:guest@rabbitmq:5672/
+        RABBITMQ_QUEUE: rss_urls
+      ports:
+        - 5050:5050
+      networks:
+        - rabbitmq_go_net
+
   worker:
     image: worker:latest
+    container_name: 'worker'
+    command: dockerize -wait tcp://mongodb:27017 -wait tcp://rabbitmq:5672 -wait tcp://rabbitmq:15672 -wait tcp://producer:5050 -timeout 30s -wait-retry-interval 5s /app/consumer
     environment:
-      MONGO_URI: mongodb://root:rootpassword@localhost:27017/test_db?authSource=admin
+      MONGO_URI: mongodb://root:rootpassword@mongodb:27017/test_db?authSource=admin
       MONGO_DATABASE: test_db
-      RABBITMQ_URI: amqp://guest:guest@localhost:5672/
+      RABBITMQ_URI: amqp://guest:guest@rabbitmq:5672/
       RABBITMQ_QUEUE: rss_urls
     networks:
         - rabbitmq_go_net
-    depends_on:
-      mondodb_container:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+    # depends_on:
+    #   mondodb_container:
+    #     condition: service_healthy
+    #   rabbitmq:
+    #     condition: service_started
 
 volumes:
   mongodb_data_container:
